@@ -52,7 +52,7 @@ from transformers import (
 )
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 
-from mosestokenizer import *
+from sacremoses import MosesTokenizer, MosesDetokenizer
 
 
 logger = logging.getLogger(__name__)
@@ -519,10 +519,11 @@ def main():
     # else:
     metric_name = regex.sub("eval_", "", training_args.metric_for_best_model)
     #     metric_name = "f1" #"rouge" if data_args.task.startswith("summarization") else "sacrebleu"
-    print("[INFO] evlaute using ", metric_name, "score", "task name:", data_args.task)
+    logger.info(f"evlaute using {metric_name} score. task name: {data_args.task}")
 
-    # metric = load_metric("f1", cache_dir=cache_dir)
 
+    detokenize = MosesDetokenizer(lang='en')
+    logger.info(f"detokenize = {detokenize}")
     def postprocess_text(preds, labels):
         preds = [pred.strip() for pred in preds]
         labels = [label.strip() for label in labels]
@@ -539,10 +540,10 @@ def main():
             # labels = ["\n".join(nltk.sent_tokenize(label)) for label in labels]
         elif metric_name == "QA_f1":
             labels = [label.split('*****') for label in labels]
-        #         elif metric_name == "bleu":  # sacrebleu
-        #             labels = [[label] for label in labels]
-        # else:
-        #     labels = [label for label in labels]
+        elif metric_name == "bleu":
+            preds = [detokenize.detokenize(pred.strip().split()) for pred in preds]
+            labels = [detokenize.detokenize(label.strip().split()) for label in labels]
+
         return preds, labels
 
     def compute_metrics(eval_preds):
@@ -661,20 +662,20 @@ def main():
         data_collator=data_collator,
         compute_metrics=compute_metrics if training_args.predict_with_generate else None,
     )
-    logger.info("early_stopping_num=", early_stopping_num)
+    logger.info(f"early_stopping_num={early_stopping_num}")
     trainer.add_callback(EarlyStoppingCallback(early_stopping_num))  # number of patient epochs before early stopping
     all_metrics = {}
     # Training
     if training_args.do_train:
         if last_checkpoint is not None:
             checkpoint = last_checkpoint
-            logger.info("***** checkpoint= resume_from_checkpoint", checkpoint)
+            logger.info(f"***** checkpoint= resume_from_checkpoint, {checkpoint}")
         elif os.path.isdir(model_args.model_name_or_path):
             checkpoint = model_args.model_name_or_path
-            logger.info("***** checkpoint= model_name_or_path", checkpoint)
+            logger.info(f"***** checkpoint= model_name_or_path, {checkpoint}")
         else:
             checkpoint = None
-            logger.info("***** checkpoint=", checkpoint)
+            logger.info(f"***** checkpoint={checkpoint}")
 
         train_result = trainer.train(resume_from_checkpoint=checkpoint)
         trainer.save_model()  # Saves the tokenizer too for easy upload
