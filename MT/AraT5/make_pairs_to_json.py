@@ -18,8 +18,8 @@ def main():
     res = []
     with open(args.src_file) as src, open(args.tar_file) as tar:
         for line1, line2 in zip(src, tar):
-            line1 = line1.strip()
-            line2 = line2.strip()
+            line1 = line1.rstrip().split(" ", 1)[1]
+            line2 = line2.rstrip().split(" ", 1)[1]
             res.append(
                 {
                     args.src_code: line1,
