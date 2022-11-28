@@ -16,7 +16,7 @@ Updates:
    - Tested on mT5, Arabic T5 (Twitter, MSA, and Twitter plus MSA) models
 """
 from rouge_score import rouge_scorer, scoring
-from eval_squad import *
+# from eval_squad import *
 import regex
 import shutil, glob
 import sacrebleu
@@ -35,7 +35,6 @@ from sklearn.metrics import accuracy_score, f1_score, recall_score, precision_sc
     confusion_matrix
 
 import transformers
-from filelock import FileLock
 from transformers import (
     IntervalStrategy,
     EarlyStoppingCallback,
@@ -55,13 +54,14 @@ from transformers.trainer_utils import get_last_checkpoint, is_main_process
 
 from mosestokenizer import *
 
-# cache_dir="/project/6007993/elmadany/T5/cache_dir" #Cedar
-cache_dir = "/tmp/AraT5_cache_dir"  # Sockeye
-# with FileLock(".lock") as lock:
-#    nltk.download("punkt", quiet=True)
-
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
+    datefmt="%m/%d/%Y %H:%M:%S",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+logger.setLevel(logging.INFO)
 
 
 def save_json(content, path, indent=4, **json_dump_kwargs):
@@ -239,10 +239,6 @@ class DataTrainingArguments:
             if self.validation_file is not None:
                 extension = self.validation_file.split(".")[-1]
                 assert extension in ["tsv", "csv", "json"], "`validation_file` should be a csv or a json file."
-        #         if not self.task.startswith("summarization") and not self.task.startswith("translation"):
-        #             raise ValueError(
-        #                 "`task` should be summarization, summarization_{dataset}, translation or translation_{xx}_to_{yy}."
-        #             )
         if self.val_max_target_length is None:
             self.val_max_target_length = self.max_target_length
 
@@ -276,6 +272,10 @@ def main():
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
+    logger.info(f"Model args: {model_args}")
+    logger.info(f"Data args: {data_args}")
+    logger.info(f"Training args: {training_args}")
+
     # Detecting last checkpoint.
     last_checkpoint = None
     if os.path.isdir(training_args.output_dir) and training_args.do_train and not training_args.overwrite_output_dir:
@@ -298,15 +298,7 @@ def main():
             ckpt_num = current_ckpt_num
     if ckpt_num > 0:
         last_checkpoint = training_args.output_dir + "/checkpoint-" + str(ckpt_num)
-    print("last_checkpoint", last_checkpoint)
-
-    # Setup logging
-    logging.basicConfig(
-        format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
-        datefmt="%m/%d/%Y %H:%M:%S",
-        handlers=[logging.StreamHandler(sys.stdout)],
-    )
-    logger.setLevel(logging.INFO if is_main_process(training_args.local_rank) else logging.WARN)
+    logger.info(f"last_checkpoint {last_checkpoint}")
 
     # Log on each process the small summary:
     logger.warning(
@@ -348,10 +340,10 @@ def main():
             data_files["test"] = data_args.test_file
             extension = data_args.test_file.split(".")[-1]
         if "tsv" in extension:
-            print("[INFO] loading from TSV")
-            datasets = load_dataset("csv", delimiter="\t", data_files=data_files, cache_dir=cache_dir)
+            logger.info("[INFO] loading from TSV")
+            datasets = load_dataset("csv", delimiter="\t", data_files=data_files, cache_dir=model_args.cache_dir)
         else:
-            datasets = load_dataset(extension, data_files=data_files, cache_dir=cache_dir)
+            datasets = load_dataset(extension, data_files=data_files, cache_dir=model_args.cache_dir, field="translation")
     # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
     # https://huggingface.co/docs/datasets/loading_datasets.html.
 
@@ -362,7 +354,7 @@ def main():
     # download model & vocab.
     config = AutoConfig.from_pretrained(
         model_args.config_name if model_args.config_name else model_args.model_name_or_path,
-        cache_dir=cache_dir,
+        cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
         # local_files_only = True
@@ -370,7 +362,7 @@ def main():
     if model_args.model_name_or_path != "facebook/mbart-large-50-many-to-many-mmt":
         tokenizer = AutoTokenizer.from_pretrained(
             model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
-            cache_dir=cache_dir,
+            cache_dir=model_args.cache_dir,
             use_fast=model_args.use_fast_tokenizer,
             revision=model_args.model_revision,
             use_auth_token=True if model_args.use_auth_token else None,
@@ -379,7 +371,7 @@ def main():
     else:
         tokenizer = MBart50Tokenizer.from_pretrained(
             model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
-            cache_dir=cache_dir,
+            cache_dir=model_args.cache_dir,
             use_fast=model_args.use_fast_tokenizer,
             revision=model_args.model_revision,
             use_auth_token=True if model_args.use_auth_token else None,
@@ -389,7 +381,7 @@ def main():
         model_args.model_name_or_path,
         from_tf=bool(".ckpt" in model_args.model_name_or_path),
         config=config,
-        cache_dir=cache_dir,
+        cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
         # local_files_only = True
@@ -421,6 +413,7 @@ def main():
     else:
         logger.info("There is nothing to do. Please pass `do_train`, `do_eval` and/or `do_predict`.")
         return
+    logger.info(f"Column names: {column_names}")
 
     # For translation we set the codes of our source and target languages (only useful for mBART, the others will
     # ignore those attributes).
@@ -430,59 +423,21 @@ def main():
         if data_args.target_lang is not None:
             tokenizer.tgt_lang = data_args.target_lang
 
-    # To serialize preprocess_function below, each of those four variables needs to be defined (even if we won't use
-    # them all).
-    source_lang, target_lang, text_column, summary_column = None, None, None, None
-
-    if data_args.task.startswith("summarize"):
-        # Get the column names for input/target.
-        dataset_columns = summarization_name_mapping.get(data_args.dataset_name, None)
-        if data_args.text_column is None:
-            text_column = dataset_columns[0] if dataset_columns is not None else column_names[0]
-        else:
-            text_column = data_args.text_column
-        if data_args.summary_column is None:
-            summary_column = dataset_columns[1] if dataset_columns is not None else column_names[1]
-        else:
-            summary_column = data_args.summary_column
-    # else:
-    #     # Get the language codes for input/target.
-    #     lang_search = re.match("translation_([a-z]+)_to_([a-z]+)", data_args.task)
-    #     if data_args.source_lang is not None:
-    #         source_lang = data_args.source_lang.split("_")[0]
-    #     else:
-    #         assert (
-    #             lang_search is not None
-    #         ), "Provide a source language via --source_lang or rename your task 'translation_xx_to_yy'."
-    #         source_lang = lang_search.groups()[0]
-
-    #     if data_args.target_lang is not None:
-    #         target_lang = data_args.target_lang.split("_")[0]
-    #     else:
-    #         assert (
-    #             lang_search is not None
-    #         ), "Provide a target language via --target_lang or rename your task 'translation_xx_to_yy'."
-    #         target_lang = lang_search.groups()[1]
-
     # Temporarily set max_target_length for training.
     max_target_length = data_args.max_target_length
     padding = "max_length" if data_args.pad_to_max_length else False
 
     if training_args.label_smoothing_factor > 0 and not hasattr(model, "prepare_decoder_input_ids_from_labels"):
-        logger.warn(
+        logger.warning(
             "label_smoothing is enabled but the `prepare_decoder_input_ids_from_labels` method is not defined for"
             f"`{model.__class__.__name__}`. This will lead to loss being calculated twice and will take up more memory"
         )
 
     def preprocess_function(examples):
-        #         if data_args.task.startswith("translation"):
-        # inputs = [ex[source_lang] for ex in examples["translation"]]
-        # targets = [ex[target_lang] for ex in examples["translation"]]
-        inputs = examples[data_args.text_column]
-        targets = examples[data_args.summary_column]
-        #         else:
-        #             inputs = examples[text_column]
-        #             targets = examples[summary_column]
+        # translation
+        inputs = examples[data_args.source_lang]
+        targets = examples[data_args.target_lang]
+
         inputs = [str(prefix) + str(inp) for inp in inputs]
         model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True)
 
@@ -706,20 +661,20 @@ def main():
         data_collator=data_collator,
         compute_metrics=compute_metrics if training_args.predict_with_generate else None,
     )
-    print("[INFO] early_stopping_num=", early_stopping_num)
+    logger.info("early_stopping_num=", early_stopping_num)
     trainer.add_callback(EarlyStoppingCallback(early_stopping_num))  # number of patient epochs before early stopping
     all_metrics = {}
     # Training
     if training_args.do_train:
         if last_checkpoint is not None:
             checkpoint = last_checkpoint
-            print("***** checkpoint= resume_from_checkpoint", checkpoint)
+            logger.info("***** checkpoint= resume_from_checkpoint", checkpoint)
         elif os.path.isdir(model_args.model_name_or_path):
             checkpoint = model_args.model_name_or_path
-            print("***** checkpoint= model_name_or_path", checkpoint)
+            logger.info("***** checkpoint= model_name_or_path", checkpoint)
         else:
             checkpoint = None
-            print("***** checkpoint=", checkpoint)
+            logger.info("***** checkpoint=", checkpoint)
 
         train_result = trainer.train(resume_from_checkpoint=checkpoint)
         trainer.save_model()  # Saves the tokenizer too for easy upload
