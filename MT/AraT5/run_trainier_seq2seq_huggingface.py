@@ -134,11 +134,11 @@ class DataTrainingArguments:
         metadata={"help": "The name of the column in the datasets containing the summaries (for summarization)."},
     )
     train_file: Optional[str] = field(
-        default="/home/ganeshjw/projects/rrg-mageed/ganeshjw/projects/MT5/mt5_train.json",
+        default=None,
         metadata={"help": "The input training data file (a jsonlines or csv file)."}
     )
     validation_file: Optional[str] = field(
-        default="/home/ganeshjw/projects/rrg-mageed/ganeshjw/projects/MT5/mt5_dev.json",
+        default=None,
         metadata={
             "help": "An optional input evaluation data file to evaluate the metrics (rouge/sacreblue) on "
                     "(a jsonlines or csv file)."
@@ -229,18 +229,18 @@ class DataTrainingArguments:
         default=None, metadata={"help": "A prefix to add before every source text (useful for T5 models)."}
     )
 
-    def __post_init__(self):
-        if self.dataset_name is None and self.train_file is None and self.validation_file is None:
-            raise ValueError("Need either a dataset name or a training/validation file.")
-        else:
-            if self.train_file is not None:
-                extension = self.train_file.split(".")[-1]
-                assert extension in ["tsv", "csv", "json"], "`train_file` should be a csv or a json file."
-            if self.validation_file is not None:
-                extension = self.validation_file.split(".")[-1]
-                assert extension in ["tsv", "csv", "json"], "`validation_file` should be a csv or a json file."
-        if self.val_max_target_length is None:
-            self.val_max_target_length = self.max_target_length
+    # def __post_init__(self):
+    #     if self.dataset_name is None and self.train_file is None and self.validation_file is None:
+    #         raise ValueError("Need either a dataset name or a training/validation file.")
+    #     else:
+    #         if self.train_file is not None:
+    #             extension = self.train_file.split(".")[-1]
+    #             assert extension in ["tsv", "csv", "json"], "`train_file` should be a csv or a json file."
+    #         if self.validation_file is not None:
+    #             extension = self.validation_file.split(".")[-1]
+    #             assert extension in ["tsv", "csv", "json"], "`validation_file` should be a csv or a json file."
+    #     if self.val_max_target_length is None:
+    #         self.val_max_target_length = self.max_target_length
 
 
 summarization_name_mapping = {
@@ -259,7 +259,7 @@ summarization_name_mapping = {
 
 
 def main():
-    early_stopping_num = 20
+    early_stopping_num = 5
     # See all possible arguments in src/transformers/training_args.py
     # or by passing the --help flag to this script.
     # We now keep distinct sets of args, for a cleaner separation of concerns.
