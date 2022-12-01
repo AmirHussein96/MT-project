@@ -20,7 +20,6 @@ def main():
     in_file = args.in_file
     out_file = args.out_file
     assert in_file and os.path.exists(in_file)
-    assert out_file and os.path.exists(out_file)
 
     with open(in_file, mode="r") as in_f, \
             open(out_file, mode="w+") as out_f:
