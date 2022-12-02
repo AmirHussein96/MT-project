@@ -104,6 +104,12 @@ class ModelArguments:
                     "with private models)."
         },
     )
+    resize_embed: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether to resize the embedding layer size to tokenizer.vocab_size."
+        }
+    )
 
 
 @dataclass
@@ -386,6 +392,10 @@ def main():
         use_auth_token=True if model_args.use_auth_token else None,
         # local_files_only = True
     )
+    if model_args.resize_embed:
+        old_shape = model.encoder.embed_tokens.weight.shape
+        model.resize_token_embeddings(tokenizer.vocab_size)
+        logger.info(f"Resize embed from {old_shape} -> {model.encoder.embed_tokens.weight.shape}")
 
     # Set decoder_start_token_id
     if model.config.decoder_start_token_id is None and isinstance(tokenizer, (MBartTokenizer, MBartTokenizerFast)):
